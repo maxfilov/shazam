@@ -1,6 +1,9 @@
+import argparse
 import logging
 import os
+import sys
 from scipy.io import wavfile
+from pythonjsonlogger import jsonlogger
 
 import tornado
 import tornado.ioloop
@@ -58,6 +61,22 @@ def make_app():
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+
+    logger = logging.getLogger()
+
+    logHandler = logging.StreamHandler()
+    formatter = jsonlogger.JsonFormatter(
+        '%(levelname)8s %(name)s %(message)s %(filename)s %(lineno)d %(asctime)'
+    )
+    logHandler.setFormatter(formatter)
+    logger.handlers.clear()
+    logger.addHandler(logHandler)
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--port', type=int, default=8000, help='port to listen on')
+    args = parser.parse_args(sys.argv[1:])
     app = make_app()
-    app.listen(8000)
+    logging.info(f'started server on {args.port}')
+    app.listen(args.port)
     tornado.ioloop.IOLoop.current().start()

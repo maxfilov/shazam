@@ -1,9 +1,6 @@
 import pickle
-import tqdm
 import numpy
 from scipy import signal
-from scipy.io import wavfile
-import typing
 
 
 def ensure_mono(data: numpy.ndarray):
@@ -14,31 +11,6 @@ def ensure_mono(data: numpy.ndarray):
     # Convert stereo to mono by averaging the channels
     # TODO: check what happens if left channel has a sound, but right doesn't
     return numpy.mean(data, axis=1, dtype=data.dtype)
-
-
-def create_database(audio_files: typing.List[str]):
-    song_index: typing.Dict[int, str] = {}
-    hash_db: typing.Dict[int, typing.List[typing.Tuple[int, int]]] = {}
-
-    i: int
-    filename: str
-    for i, filename in enumerate(tqdm.tqdm(sorted(audio_files))):
-        song_index[i] = filename
-
-        fs: int
-        audio_input: numpy.ndarray
-        fs, audio_input = wavfile.read(filename)
-        constellation = create_constellation(audio_input, fs)
-        hashes = create_hashes(constellation, i)
-        for hash, time_index_pair in hashes.items():
-            if hash not in hash_db:
-                hash_db[hash] = []
-            hash_db[hash].append(time_index_pair)
-
-    with open("database.pickle", 'wb') as db:
-        pickle.dump(hash_db, db, pickle.HIGHEST_PROTOCOL)
-    with open("song_index.pickle", 'wb') as song_db:
-        pickle.dump(song_index, song_db, pickle.HIGHEST_PROTOCOL)
 
 
 def create_hashes(constellation_map, song_id=None):
@@ -102,8 +74,9 @@ def create_constellation(audio, fs):
         # With a maximum of 15 per time slice
         n_peaks = min(num_peaks, len(peaks))
         # Get the largest peaks from the prominences
-        # This is an argpartition
-        # Useful explanation: https://kanoki.org/2020/01/14/find-k-smallest-and-largest-values-and-its-indices-in-a-numpy-array/
+        # This is an `argpartition`
+        # Useful explanation:
+        # https://kanoki.org/2020/01/14/find-k-smallest-and-largest-values-and-its-indices-in-a-numpy-array/
         largest_peaks = numpy.argpartition(props["prominences"], -n_peaks)[-n_peaks:]
         for peak in peaks[largest_peaks]:
             frequency = frequencies[peak]
@@ -120,13 +93,13 @@ def score_songs(hashes):
     matches_per_song = {}
     for hash, (sample_time, _) in hashes.items():
         if hash in database:
-            matching_occurences = database[hash]
-            for source_time, song_index in matching_occurences:
+            matching_occurrences = database[hash]
+            for source_time, song_index in matching_occurrences:
                 if song_index not in matches_per_song:
                     matches_per_song[song_index] = []
                 matches_per_song[song_index].append((hash, sample_time, source_time))
 
-    scores = {}
+    scores = []
     for song_index, matches in matches_per_song.items():
         song_scores_by_offset = {}
         for hash, sample_time, source_time in matches:
@@ -135,15 +108,10 @@ def score_songs(hashes):
                 song_scores_by_offset[delta] = 0
             song_scores_by_offset[delta] += 1
 
-        max = (0, 0)
-        for offset, score in song_scores_by_offset.items():
-            if score > max[1]:
-                max = (offset, score)
-
-        scores[song_index] = max
+        scores.append((song_index, max(song_scores_by_offset.values())))
 
     # Sort the scores for the user
-    scores = list(sorted(scores.items(), key=lambda x: x[1][1], reverse=True))
+    scores = list(sorted(scores, key=lambda x: x[1], reverse=True))
 
     return scores
 
@@ -152,11 +120,4 @@ def find_match(fs, audio):
     constellation = create_constellation(audio, fs)
     hashes = create_hashes(constellation, None)
     scores = score_songs(hashes)
-    return {song_index_lookup[song_index]: score[1] for song_index, score in scores}
-
-
-if __name__ == '__main__':
-    import glob
-
-    songs = glob.glob('data/*.wav')
-    create_database(songs)
+    return {song_index_lookup[song_index]: score for song_index, score in scores}
